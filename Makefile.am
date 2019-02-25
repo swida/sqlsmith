@@ -14,15 +14,18 @@ if DUT_SQLITE
 DUT += sqlite.cc
 endif
 
+if DUT_MYSQL
+DUT += mysql.cc
+endif
 
 sqlsmith_SOURCES = relmodel.cc schema.cc $(DUT)	 			\
     random.cc prod.cc expr.cc grammar.cc log.cc dump.cc impedance.cc	\
     sqlsmith.cc
 
-sqlsmith_LDADD = $(LIBPQXX_LIBS) $(MONETDB_MAPI_LIBS) $(BOOST_REGEX_LIB) $(POSTGRESQL_LIBS)
+sqlsmith_LDADD = $(LIBPQXX_LIBS) $(MONETDB_MAPI_LIBS) $(BOOST_REGEX_LIB) $(POSTGRESQL_LIBS) $(MYSQL_LIBS)
 
 AM_LDFLAGS = $(BOOST_LDFLAGS) $(POSTGRESQL_LDFLAGS)
-AM_CPPFLAGS = $(BOOST_CPPFLAGS) $(LIBPQXX_CFLAGS) $(POSTGRESQL_CPPFLAGS) $(MONETDB_MAPI_CFLAGS) -Wall -Wextra
+AM_CPPFLAGS = $(BOOST_CPPFLAGS) $(LIBPQXX_CFLAGS) $(POSTGRESQL_CPPFLAGS) $(MONETDB_MAPI_CFLAGS) $(MYSQL_INCLUDE_DIR) -Wall -Wextra
 
 
 EXTRA_DIST = gitrev.h dump.hh expr.hh grammar.hh log.hh prod.hh		\

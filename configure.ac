@@ -27,6 +27,19 @@ AC_SUBST(CONFIG_GIT_REVISION,
 AC_CHECK_LIB(sqlite3, sqlite3_open_v2)
 AM_CONDITIONAL([DUT_SQLITE], [test x$ac_cv_lib_sqlite3_sqlite3_open_v2 = xyes])
 
+ENABLE_MYSQL=no
+AC_CHECK_PROGS(MYSQL_CONFIG, mysql_config)
+if test -n "$MYSQL_CONFIG"
+then
+	MYSQL_INCLUDE_DIR=`$MYSQL_CONFIG --include`
+	MYSQL_LIBS=`$MYSQL_CONFIG --libs`
+        AC_SUBST(MYSQL_INCLUDE_DIR)
+        AC_SUBST(MYSQL_LIBS)
+	ENABLE_MYSQL=yes
+	AC_DEFINE([HAVE_MYSQL], [1], [define if the MySQL client library is available])
+fi
+AM_CONDITIONAL([DUT_MYSQL], [test x$ENABLE_MYSQL = xyes])
+
 AC_SUBST(REVISION)
 
 AC_CONFIG_HEADERS(config.h)

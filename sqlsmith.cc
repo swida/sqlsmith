@@ -34,6 +34,10 @@ using boost::regex_match;
 #include "monetdb.hh"
 #endif
 
+#ifdef HAVE_MYSQL
+#include "mysql.hh"
+#endif
+
 #include "postgres.hh"
 
 using namespace std;
@@ -62,7 +66,7 @@ int main(int argc, char *argv[])
   cerr << PACKAGE_NAME " " GITREV << endl;
 
   map<string,string> options;
-  regex optregex("--(help|log-to|verbose|target|sqlite|monetdb|version|dump-all-graphs|dump-all-queries|seed|dry-run|max-queries|rng-state|exclude-catalog)(?:=((?:.|\n)*))?");
+  regex optregex("--(help|log-to|verbose|target|sqlite|monetdb|mysql|version|dump-all-graphs|dump-all-queries|seed|dry-run|max-queries|rng-state|exclude-catalog)(?:=((?:.|\n)*))?");
   
   for(char **opt = argv+1 ;opt < argv+argc; opt++) {
     smatch match;
@@ -83,6 +87,9 @@ int main(int argc, char *argv[])
 #endif
 #ifdef HAVE_MONETDB
       "    --monetdb=connstr    MonetDB database to send queries to" <<endl <<
+#endif
+#ifdef HAVE_MYSQL
+      "    --mysql=connstr      MySQL database to send queries to" <<endl <<
 #endif
       "    --log-to=connstr     log errors to postgres database" << endl <<
       "    --seed=int           seed RNG with specified int instead of PID" << endl <<
@@ -119,7 +126,14 @@ int main(int argc, char *argv[])
 	return 1;
 #endif
       }
-      else
+      else if (options.count("mysql")) {
+#ifdef HAVE_MYSQL
+	schema = make_shared<schema_mysql>(options["mysql"], options.count("exclude-catalog"));
+#else
+	cerr << "Sorry, " PACKAGE_NAME " was compiled without MySQL support." << endl;
+	return 1;
+#endif
+      } else
 	schema = make_shared<schema_pqxx>(options["target"], options.count("exclude-catalog"));
 
       scope scope;
@@ -184,6 +198,13 @@ int main(int argc, char *argv[])
 	dut = make_shared<dut_monetdb>(options["monetdb"]);
 #else
 	cerr << "Sorry, " PACKAGE_NAME " was compiled without MonetDB support." << endl;
+	return 1;
+#endif
+      } else if (options.count("mysql")) {
+#ifdef HAVE_MYSQL
+	dut = make_shared<dut_mysql>(options["mysql"]);
+#else
+	cerr << "Sorry, " PACKAGE_NAME " was compiled without MySQL support." << endl;
 	return 1;
 #endif
       }
