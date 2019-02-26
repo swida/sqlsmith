@@ -4,38 +4,187 @@
 #include "mysql.hh"
 #include <iostream>
 
-#ifndef HAVE_BOOST_REGEX
-#include <regex>
-#else
-#include <boost/regex.hpp>
-using boost::regex;
-using boost::smatch;
-using boost::regex_match;
-#endif
-
 using namespace std;
-
-static regex e_syntax(".*You have an error in your SQL syntax.*");
-static regex e_user_abort("Query execution was interrupted");
 
 extern "C"  {
 #include <unistd.h>
+#include <mysqld_error.h>
+
+}
+
+/*
+ code borrowed from libpq
+ */
+static void conninfo_parse(const std::string conninfo,
+                          std::string &host,
+                           std::string &port,
+                          std::string &user,
+                          std::string &password,
+                          std::string &database,
+                          std::string &unix_socket)
+{
+  char	   *pname;
+  char	   *pval;
+  char	   *buf;
+  char	   *cp;
+  char	   *cp2;
+  struct ci_option {
+    const char *name;
+    std::string &value;
+  };
+  ci_option options[] ={
+    {"host", host}, {"port", port}, {"user", user},
+     {"password", password}, {"database", database},
+     {"unix_socket", unix_socket}};
+
+  /* Need a modifiable copy of the input string */
+  if ((buf = strdup(conninfo.c_str())) == NULL)
+    throw std::runtime_error("out of memory");
+
+  cp = buf;
+
+  while (*cp)
+  {
+    /* Skip blanks before the parameter name */
+    if (isspace((unsigned char) *cp))
+    {
+      cp++;
+      continue;
+    }
+
+    /* Get the parameter name */
+    pname = cp;
+    while (*cp)
+    {
+      if (*cp == '=')
+        break;
+      if (isspace((unsigned char) *cp))
+      {
+        *cp++ = '\0';
+        while (*cp)
+        {
+          if (!isspace((unsigned char) *cp))
+            break;
+          cp++;
+        }
+        break;
+      }
+      cp++;
+    }
+
+    /* Check that there is a following '=' */
+    if (*cp != '=')
+    {
+      free(buf);
+      throw std::runtime_error("missing \"=\" after \"%s\" in connection info string\n");
+                             // pname);
+    }
+    *cp++ = '\0';
+
+    /* Skip blanks after the '=' */
+    while (*cp)
+    {
+      if (!isspace((unsigned char) *cp))
+        break;
+      cp++;
+    }
+
+    /* Get the parameter value */
+    pval = cp;
+
+    if (*cp != '\'')
+    {
+      cp2 = pval;
+      while (*cp)
+      {
+        if (isspace((unsigned char) *cp))
+        {
+          *cp++ = '\0';
+          break;
+        }
+        if (*cp == '\\')
+        {
+          cp++;
+          if (*cp != '\0')
+            *cp2++ = *cp++;
+        }
+        else
+          *cp2++ = *cp++;
+      }
+      *cp2 = '\0';
+    }
+    else
+    {
+      cp2 = pval;
+      cp++;
+      for (;;)
+      {
+        if (*cp == '\0')
+        {
+          free(buf);
+          throw std::runtime_error("unterminated quoted string in connection info string\n");
+        }
+        if (*cp == '\\')
+        {
+          cp++;
+          if (*cp != '\0')
+            *cp2++ = *cp++;
+          continue;
+        }
+        if (*cp == '\'')
+        {
+          *cp2 = '\0';
+          cp++;
+          break;
+        }
+        *cp2++ = *cp++;
+      }
+    }
+
+    /*
+     * Now that we have the name and the value, store the record.
+     */
+    bool found = false;
+    for(auto &option : options) {
+      if (!strcmp(option.name, pname)) {
+        found = true;
+        option.value = pval;
+      }
+    }
+    if (!found)
+      throw std::runtime_error("no option found\n");
+  }
+
+  /* Done with the modifiable input string */
+  free(buf);
 }
 
 mysql_connection::mysql_connection(std::string &conninfo)
 {
-  (void) conninfo;
+  std::string host, port="3306", user,
+    password, database, unix_socket;
+  conninfo_parse(conninfo, host, port, user,
+                 password, database, unix_socket);
   db = mysql_init(NULL);
-  if (!mysql_real_connect(db, "127.0.0.1", "root", "", "test", 3306, "", 0))
+  if (!mysql_real_connect(db, host.c_str(),
+                          user.c_str(), password.c_str(), database.c_str()
+                          , stol(port), "", 0))
     throw std::runtime_error(mysql_error(db));
 }
 
 void mysql_connection::q(const char *query)
 {
-  if (!mysql_real_query(db, query, strlen(query)))
-    return;
-  auto e = std::runtime_error(mysql_error(db));
-  throw e;
+  MYSQL_RES *result;
+  if (mysql_real_query(db, query, strlen(query)))
+    throw std::runtime_error(mysql_error(db));
+
+  result = mysql_store_result(db);
+
+  if (mysql_errno(db) != 0) {
+      mysql_free_result(result);
+    throw std::runtime_error(mysql_error(db));
+    mysql_free_result(result);
+  }
 }
 
 mysql_connection::~mysql_connection()
@@ -47,23 +196,20 @@ mysql_connection::~mysql_connection()
 schema_mysql::schema_mysql(std::string &conninfo, bool no_catalog)
   : mysql_connection(conninfo)
 {
-  std::string query = "SELECT table_schema, table_name FROM information_schema.tables WHERE engine = 'innodb'";
+  std::string query = "SELECT table_name, table_schema FROM information_schema.tables WHERE engine = 'innodb'";
   if (no_catalog)
     query+=" AND table_schema NOT IN ('information_schema', 'sys', 'performance_schema', 'mysql')";
 
   cerr << "Loading tables...";
 
-  int rc = mysql_real_query(db, query.c_str(), query.size());
-  if (rc) {
-    auto e = std::runtime_error(mysql_error(db));
-    throw e;
-  }
+  if (mysql_real_query(db, query.c_str(), query.size()))
+    throw std::runtime_error(mysql_error(db));
 
   MYSQL_ROW cur;
   MYSQL_RES *result = mysql_store_result(db);
-  if (!result) {
-    auto e = std::runtime_error(mysql_error(db));
-    throw e;
+  if (mysql_errno(db) != 0) {
+    mysql_free_result(result);
+    throw std::runtime_error(mysql_error(db));
   }
 
   while ((cur = mysql_fetch_row(result))) {
@@ -82,16 +228,13 @@ schema_mysql::schema_mysql(std::string &conninfo, bool no_catalog)
     q += quote(t->schema);
     q += " AND table_name = ";
     q += quote(t->name);
+    if (mysql_real_query(db, q.c_str(), q.size()))
+      throw std::runtime_error(mysql_error(db));
 
-    rc = mysql_real_query(db, q.c_str(), q.size());
-    if (rc) {
-      auto e = std::runtime_error(mysql_error(db));
-      throw e;
-    }
-
-    if (!(result = mysql_store_result(db))) {
-    auto e = std::runtime_error(mysql_error(db));
-    throw e;
+    result = mysql_store_result(db);
+    if (mysql_errno(db) != 0) {
+      mysql_free_result(result);
+      throw std::runtime_error(mysql_error(db));
     }
 
     while ((cur = mysql_fetch_row(result))) {
@@ -106,7 +249,7 @@ schema_mysql::schema_mysql(std::string &conninfo, bool no_catalog)
 
 #define BINOP(n,t) do {op o(#n,sqltype::get(#t),sqltype::get(#t),sqltype::get(#t)); register_operator(o); } while(0)
 
-  BINOP(||, TEXT);
+  BINOP(||, INTEGER);
   BINOP(*, INTEGER);
   BINOP(/, INTEGER);
 
@@ -158,11 +301,7 @@ schema_mysql::schema_mysql(std::string &conninfo, bool no_catalog)
     register_routine(proc);						\
   } while(0)
 
-  FUNC(last_insert_rowid, INTEGER);
   FUNC(random, INTEGER);
-  FUNC(sqlite_source_id, TEXT);
-  FUNC(sqlite_version, TEXT);
-  FUNC(total_changes, INTEGER);
 
   FUNC1(abs, INTEGER, REAL);
   FUNC1(hex, TEXT, TEXT);
@@ -170,23 +309,11 @@ schema_mysql::schema_mysql(std::string &conninfo, bool no_catalog)
   FUNC1(lower, TEXT, TEXT);
   FUNC1(ltrim, TEXT, TEXT);
   FUNC1(quote, TEXT, TEXT);
-  FUNC1(randomblob, TEXT, INTEGER);
   FUNC1(round, INTEGER, REAL);
   FUNC1(rtrim, TEXT, TEXT);
-  FUNC1(soundex, TEXT, TEXT);
-  FUNC1(sqlite_compileoption_get, TEXT, INTEGER);
-  FUNC1(sqlite_compileoption_used, INTEGER, TEXT);
   FUNC1(trim, TEXT, TEXT);
-  FUNC1(typeof, TEXT, INTEGER);
-  FUNC1(typeof, TEXT, NUMERIC);
-  FUNC1(typeof, TEXT, REAL);
-  FUNC1(typeof, TEXT, TEXT);
-  FUNC1(unicode, INTEGER, TEXT);
   FUNC1(upper, TEXT, TEXT);
-  FUNC1(zeroblob, TEXT, INTEGER);
 
-  FUNC2(glob, INTEGER, TEXT, TEXT);
-  FUNC2(instr, INTEGER, TEXT, TEXT);
   FUNC2(like, INTEGER, TEXT, TEXT);
   FUNC2(ltrim, TEXT, TEXT, TEXT);
   FUNC2(rtrim, TEXT, TEXT, TEXT);
@@ -214,14 +341,11 @@ schema_mysql::schema_mysql(std::string &conninfo, bool no_catalog)
   AGG(max, INTEGER, INTEGER);
   AGG(sum, REAL, REAL);
   AGG(sum, INTEGER, INTEGER);
-  AGG(total, REAL, INTEGER);
-  AGG(total, REAL, REAL);
 
   booltype = sqltype::get("INTEGER");
   inttype = sqltype::get("INTEGER");
 
   internaltype = sqltype::get("internal");
-  arraytype = sqltype::get("ARRAY");
 
   true_literal = "1";
   false_literal = "0";
@@ -234,22 +358,41 @@ schema_mysql::schema_mysql(std::string &conninfo, bool no_catalog)
 dut_mysql::dut_mysql(std::string &conninfo)
   : mysql_connection(conninfo)
 {
-  // q("PRAGMA main.auto_vacuum = 2");
+  q("set force_parallel_mode=on");
+  q("set max_parallel_degree=4");
+  q("set max_execution_time = 3000");
 }
 
 void dut_mysql::test(const std::string &stmt)
 {
   if (mysql_real_query(db, stmt.c_str(), stmt.size())) {
+    unsigned int error = mysql_errno(db);
     const char *errmsg = mysql_error(db);
+
     try {
-      if (regex_match(errmsg, e_syntax))
+      if (error == ER_SYNTAX_ERROR)
         throw dut::syntax(errmsg);
-      else if (regex_match(errmsg, e_user_abort)) {
+      else if (error == ER_QUERY_TIMEOUT)
+        throw dut::timeout(errmsg);
+      else if (error == ER_QUERY_INTERRUPTED)
         return;
-      } else
+      else if (error == CR_SERVER_LOST) {
+        mysql_close(db);
+        db = NULL;
+        throw dut::broken(errmsg);
+      }
+      else
         throw dut::failure(errmsg);
     } catch (dut::failure &e) {
       throw;
     }
   }
+
+  MYSQL_RES *result = mysql_store_result(db);
+  if (mysql_errno(db) != 0) {
+    const char *errmsg = mysql_error(db);
+    mysql_free_result(result);
+    throw dut::failure(errmsg);
+  }
+  mysql_free_result(result);
 }
