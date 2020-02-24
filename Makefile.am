@@ -3,8 +3,10 @@
 BUILT_SOURCES = gitrev.h
 
 bin_PROGRAMS = sqlsmith
-
-DUT = postgres.cc
+DUT =
+if DUT_POSTGRESQL
+DUT += postgres.cc
+endif
 
 if DUT_MONETDB
 DUT += monetdb.cc

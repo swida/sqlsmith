@@ -2,11 +2,10 @@
 #include "config.h"
 #include "schema.hh"
 #include "relmodel.hh"
-#include <pqxx/pqxx>
+//#include <pqxx/pqxx>
 #include "gitrev.h"
 
 using namespace std;
-using namespace pqxx;
 
 void schema::generate_indexes() {
 

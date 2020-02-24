@@ -1,7 +1,10 @@
 #include "config.h"
 #include <iostream>
-#include <pqxx/pqxx>
 #include <sstream>
+
+#ifdef HAVE_LIBPQXX
+#include <pqxx/pqxx>
+#endif
 
 #ifndef HAVE_BOOST_REGEX
 #include <regex>
@@ -25,7 +28,6 @@ extern "C" {
 #include "random.hh"
 
 using namespace std;
-using namespace pqxx;
 
 struct stats_visitor : prod_visitor {
   int nodes = 0;
@@ -129,6 +131,8 @@ void cerr_logger::error(prod &query, const dut::failure &e)
     cerr << "e";
 }
 
+#ifdef HAVE_LIBPQXX
+using namespace pqxx;
 pqxx_logger::pqxx_logger(std::string target, std::string conninfo, struct schema &s)
 {
   c = make_shared<pqxx::connection>(conninfo);
@@ -184,4 +188,5 @@ void pqxx_logger::generated(prod &query)
     w.commit();
   }
 }
+#endif
 

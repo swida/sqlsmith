@@ -38,8 +38,9 @@ using boost::regex_match;
 #include "mysql.hh"
 #endif
 
+#ifdef HAVE_LIBPQ
 #include "postgres.hh"
-
+#endif
 using namespace std;
 
 using namespace std::chrono;
@@ -133,9 +134,11 @@ int main(int argc, char *argv[])
 	cerr << "Sorry, " PACKAGE_NAME " was compiled without MySQL support." << endl;
 	return 1;
 #endif
-      } else
+      } else {
+#ifdef HAVE_LIBPQXX
 	schema = make_shared<schema_pqxx>(options["target"], options.count("exclude-catalog"));
-
+#endif
+     }
       scope scope;
       long queries_generated = 0;
       schema->fill_scope(scope);
@@ -150,11 +153,13 @@ int main(int argc, char *argv[])
 
       loggers.push_back(make_shared<impedance_feedback>());
 
-      if (options.count("log-to"))
+      if (options.count("log-to")) {
+#ifdef HAVE_LIBPQXX
 	loggers.push_back(make_shared<pqxx_logger>(
 	     options.count("sqlite") ? options["sqlite"] : options["target"],
 	     options["log-to"], *schema));
-
+#endif
+      }
       if (options.count("verbose")) {
 	auto l = make_shared<cerr_logger>();
 	global_cerr_logger = &*l;
@@ -208,9 +213,11 @@ int main(int argc, char *argv[])
 	return 1;
 #endif
       }
-      else
+      else {
+#ifdef HAVE_LIBPQXX
 	dut = make_shared<dut_libpq>(options["target"]);
-
+#endif
+     }
       while (1) /* Loop to recover connection loss */
       {
 	try {

@@ -5,8 +5,9 @@
 #define LOG_HH
 
 #include <exception>
-#include <pqxx/pqxx>
 #include <string>
+#include <memory>
+#include <map>
 
 #include "prod.hh"
 #include "dut.hh"
@@ -48,6 +49,8 @@ struct cerr_logger : stats_collecting_logger {
   void report(prod &p);
 };
 
+#ifdef HAVE_LIBPQXX
+
 /// logger to postgres database
 struct pqxx_logger : stats_collecting_logger {
   long id;
@@ -56,5 +59,7 @@ struct pqxx_logger : stats_collecting_logger {
   virtual void generated(prod &query);
   virtual void error(prod &query, const dut::failure &e);
 };
+
+#endif
 
 #endif

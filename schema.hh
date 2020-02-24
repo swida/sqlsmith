@@ -6,7 +6,6 @@
 
 #include <string>
 #include <iostream>
-#include <pqxx/pqxx>
 #include <numeric>
 #include <memory>
 
