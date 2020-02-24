@@ -6,7 +6,8 @@ AC_PROG_CXX
 AX_CXX_COMPILE_STDCXX_11(noext,mandatory)
 
 PKG_CHECK_MODULES(LIBPQXX, libpqxx >= 4.0,
-		[AC_DEFINE([HAVE_LIBPQXX], [1], [define if the PostgreSQL client library is available])],
+		[AC_DEFINE([HAVE_LIBPQXX], [1], [define if the PostgreSQL client library is available])
+		AX_LIB_POSTGRESQL()],
 		[]
 )
 

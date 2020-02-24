@@ -8,6 +8,9 @@
 #include <string>
 #include <memory>
 #include <map>
+#ifdef HAVE_LIBPQXX
+#include <pqxx/pqxx>
+#endif
 
 #include "prod.hh"
 #include "dut.hh"
@@ -50,7 +53,7 @@ struct cerr_logger : stats_collecting_logger {
 };
 
 #ifdef HAVE_LIBPQXX
-
+using namespace pqxx;
 /// logger to postgres database
 struct pqxx_logger : stats_collecting_logger {
   long id;

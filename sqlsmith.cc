@@ -38,7 +38,7 @@ using boost::regex_match;
 #include "mysql.hh"
 #endif
 
-#ifdef HAVE_LIBPQ
+#ifdef HAVE_LIBPQXX
 #include "postgres.hh"
 #endif
 using namespace std;
